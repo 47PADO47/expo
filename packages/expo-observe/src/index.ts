@@ -51,6 +51,7 @@ export type {
   ObserveIntegrationRegistry,
   ObserveIntegrationReporter,
   ObserveIntegrationReportOptions,
+  ObserveIntegrationStorage,
   ObserveIntegrationWarningReport,
   ObserveIntegrationsConfig,
   ObserveModule,
