@@ -42,6 +42,22 @@ public protocol ExpoAppDelegateSubscriberProtocol: UIApplicationDelegate {
   @objc
   @MainActor
   optional func appDelegateWillBeginInitialization()
+
+  #if os(iOS) || os(tvOS)
+  /**
+   Function that is called by `ExpoAppSceneDelegate` when a window scene connects, before the window
+   is created and before React Native is started in it. Anything shown here is on screen before the
+   React host exists. It is not called for a scene that is not a `UIWindowScene`.
+   */
+  // UIKit's selector, so one method can also implement `UISceneDelegate` in a subscriber that is both.
+  @objc(scene:willConnectToSession:options:)
+  @MainActor
+  optional func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  )
+  #endif
 }
 
 /**
