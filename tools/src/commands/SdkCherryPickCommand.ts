@@ -1,7 +1,8 @@
 import { Command } from '@expo/commander';
+import fs from 'node:fs';
 
 import logger from '../Logger';
-import { backportAsync } from '../sdk-cherry-pick/Backport';
+import { BackportRebuild, backportAsync } from '../sdk-cherry-pick/Backport';
 import { ghCli } from '../sdk-cherry-pick/GitHub';
 
 /** `LABELS` is a JSON string for a `labeled` event, and a JSON array when the pull request merged. */
@@ -32,9 +33,10 @@ async function action() {
     ? `${env.GITHUB_SERVER_URL}/${repo}/actions/runs/${env.GITHUB_RUN_ID}`
     : undefined;
 
+  const rebuilds: BackportRebuild[] = [];
   for (const sdkVersion of readSdkVersions(env)) {
     try {
-      await backportAsync({
+      const rebuild = await backportAsync({
         repoDir: env.REPO_DIR || process.cwd(),
         prNumber,
         sdkVersion,
@@ -44,10 +46,16 @@ async function action() {
         runLogUrl,
         log: (message) => logger.log(message),
       });
+      if (rebuild) {
+        rebuilds.push(rebuild);
+      }
     } catch (error) {
       logger.error(`The backport to sdk-${sdkVersion} failed:`, error);
       process.exitCode = 1;
     }
+  }
+  if (env.GITHUB_OUTPUT) {
+    await fs.promises.appendFile(env.GITHUB_OUTPUT, `rebuilds=${JSON.stringify(rebuilds)}\n`);
   }
 }
 

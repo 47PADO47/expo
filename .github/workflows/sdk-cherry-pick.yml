@@ -1,8 +1,14 @@
 name: SDK cherry-pick
 
 # SECURITY: `pull_request_target` runs this workflow from the default branch with secrets, also for
-# pull requests from forks. Only code from the default branch runs. The merged change is read as git
-# data with hooks off, and its changesets only as text.
+# pull requests from forks. cherry-pick runs only code from the default branch. The merged change is
+# read as git data with hooks off, and its changesets only as text.
+# rebuild runs code from the backport branch: the release branch plus a change that a maintainer
+# reviewed and merged. It has no secret and a read-only token. That code can reach the Actions runtime
+# token of the runner, for example to write caches. It can also upload the artifact of another rebuild
+# leg, so push-build may push a patch that another leg's code built. That patch is still limited to
+# build/ files under packages/, on a bot branch that a person reviews. The team accepts these risks.
+# push-build has the bot token and runs no code from the branch, only git, bash, and gh.
 on:
   pull_request_target:
     types: [closed, labeled]
@@ -38,6 +44,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      rebuilds: ${{ steps.backport.outputs.rebuilds }}
     concurrency:
       group: sdk-cherry-pick-${{ github.event.pull_request.number || inputs.pr }}-${{ github.event.label.name || inputs.sdk || 'merged' }}
     env:
@@ -88,3 +96,179 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "The SDK backport failed before it started, so no backport pull request was opened. [Run log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
         env:
           GH_TOKEN: ${{ secrets.EXPO_BOT_GITHUB_TOKEN }}
+
+  rebuild:
+    name: Rebuild build/ for sdk-${{ matrix.sdk }}
+    needs: cherry-pick
+    if: ${{ !cancelled() && needs.cherry-pick.outputs.rebuilds != '' && needs.cherry-pick.outputs.rebuilds != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.cherry-pick.outputs.rebuilds) }}
+    env:
+      PACKAGES: ${{ join(matrix.packages, ' ') }}
+      SKIP_SKIA_DOWNLOAD: '1'
+    steps:
+      - name: 👀 Checkout the backport
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      # As the check-packages job of the branch's own sdk.yml: Node 20, Bun, and the package manager
+      # of its lockfile. sdk-55 uses yarn. sdk-56 and sdk-57 use pnpm 10.
+      - name: 🔍 Find the package manager of the branch
+        id: tools
+        run: |
+          if [ -f yarn.lock ]; then
+            echo "manager=yarn" >> "$GITHUB_OUTPUT"
+          elif [ -f pnpm-lock.yaml ]; then
+            echo "manager=pnpm" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::The branch has neither yarn.lock nor pnpm-lock.yaml."
+            exit 1
+          fi
+      - name: 🔨 Install pnpm
+        if: steps.tools.outputs.manager == 'pnpm'
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10
+      # No dependency cache: code from the branch must not write a cache that other jobs restore.
+      - name: 🔨 Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          package-manager-cache: false
+      - name: 🏗️ Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+      - name: 📦 Install dependencies of the branch
+        run: $MANAGER install --frozen-lockfile
+        env:
+          MANAGER: ${{ steps.tools.outputs.manager }}
+      # expotools can exit 0 when it fails to compile itself, without running check-packages. Without
+      # the success line, the empty patch would read as "nothing to push".
+      - name: 🛠 Rebuild the packages
+        run: |
+          set -o pipefail
+          # shellcheck disable=SC2086 # Package names have no spaces, so each word is one name.
+          node tools/bin/expotools.js check-packages $PACKAGES --no-test --no-lint --no-uniformity-check --no-dependency-check \
+            | tee "$RUNNER_TEMP/check-packages.log"
+          if ! grep -qF 'All packages passed.' "$RUNNER_TEMP/check-packages.log"; then
+            echo "::error::check-packages did not report that all packages passed, so the build/ folders may be stale."
+            exit 1
+          fi
+      # check-packages compares `git status`, so new build files count too. `git add -N` puts them in
+      # the diff without staging their content. It skips ignored files, such as node_modules.
+      - name: 📦 Write the patch of the build/ folders
+        run: |
+          mkdir -p "$RUNNER_TEMP/rebuild"
+          git add -N -- packages/
+          git diff --name-only -z --no-renames HEAD -- packages/ > "$RUNNER_TEMP/changed"
+          mapfile -d '' -t paths < <(grep -zF /build/ "$RUNNER_TEMP/changed" || true)
+          if [ "${#paths[@]}" -gt 0 ]; then
+            export GIT_LITERAL_PATHSPECS=1
+            git diff --binary --no-renames --no-ext-diff --no-textconv HEAD -- "${paths[@]}" > "$RUNNER_TEMP/rebuild/build.patch"
+          else
+            : > "$RUNNER_TEMP/rebuild/build.patch"
+            echo "The rebuild changed no build/ file."
+          fi
+      - name: 📤 Upload the patch
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdk-cherry-pick-build-${{ matrix.sdk }}
+          path: ${{ runner.temp }}/rebuild/build.patch
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  # SECURITY: this job has the bot token, so it runs no code from the branch. The patch comes from
+  # rebuild, so it goes to the index only and is checked before the commit.
+  push-build:
+    name: Push the rebuilt build/ to the sdk-${{ matrix.sdk }} backport
+    needs: [cherry-pick, rebuild]
+    if: ${{ !cancelled() && needs.cherry-pick.outputs.rebuilds != '' && needs.cherry-pick.outputs.rebuilds != '[]' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.cherry-pick.outputs.rebuilds) }}
+    steps:
+      # The name has no run attempt, so that a re-run of this job alone finds the patch. A re-run of
+      # rebuild overwrites it. A failed rebuild uploads no patch, so this step fails and the last step
+      # comments.
+      - name: 📥 Download the patch
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sdk-cherry-pick-build-${{ matrix.sdk }}
+          path: ${{ runner.temp }}/rebuild
+      - name: 👀 Checkout the backport
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      # `--ignore-submodules=none`, so that a `.gitmodules` of the branch cannot hide a gitlink.
+      - name: 📝 Apply and commit the patch
+        run: |
+          patch="$RUNNER_TEMP/rebuild/build.patch"
+          if [ ! -f "$patch" ]; then
+            echo "::error::The patch of the rebuild is missing."
+            exit 1
+          elif [ ! -s "$patch" ]; then
+            echo "The rebuild changed no build/ file, so there is nothing to push."
+            exit 0
+          fi
+          git apply --cached "$patch"
+          git diff --cached --raw -z --no-renames --ignore-submodules=none > "$RUNNER_TEMP/staged"
+          regular='^(000000|100644|100755)$'
+          while IFS= read -r -d '' meta && IFS= read -r -d '' path; do
+            read -r old new _ <<< "${meta#:}"
+            if [[ "$path" != packages/* || "$path" != */build/* || "/$path" == */.git* ]] \
+              || ! [[ "$old" =~ $regular && "$new" =~ $regular ]]; then
+              echo "::error::The patch changes $path from mode $old to $new. It may change only regular files in build/ folders under packages/."
+              exit 1
+            fi
+          done < "$RUNNER_TEMP/staged"
+          # A re-run of a failed rebuild leg also re-runs this job for the other legs. The same patch on
+          # the same parent then makes the same commit, so the second push changes nothing.
+          GIT_AUTHOR_DATE=$(git log -1 --format=%cI "$SHA")
+          export GIT_AUTHOR_DATE GIT_COMMITTER_DATE=$GIT_AUTHOR_DATE
+          git -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name='Expo Bot' -c user.email=34669131+expo-bot@users.noreply.github.com \
+            commit --quiet -m 'Rebuild build/ folders'
+        env:
+          SHA: ${{ matrix.sha }}
+      # SECURITY: only this step has the token, and it is not written to .git/config.
+      - name: 🚀 Push
+        run: |
+          if [ "$(git rev-parse HEAD)" = "$SHA" ]; then
+            exit 0
+          fi
+          # shellcheck disable=SC2016 # The credential helper expands $GH_TOKEN, so it is not in argv.
+          git -c core.hooksPath=/dev/null -c credential.helper= \
+            -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' \
+            push origin "HEAD:refs/heads/$BRANCH"
+        env:
+          GH_TOKEN: ${{ secrets.EXPO_BOT_GITHUB_TOKEN }}
+          BRANCH: ${{ matrix.branch }}
+          SHA: ${{ matrix.sha }}
+      - name: 💬 Comment that the rebuild failed
+        if: failure()
+        run: |
+          gh pr comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body "The bot could not rebuild the \`build/\` folders of this branch. [Run log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
+
+          To retry, re-run only the failed rebuild or push job of that run. A re-run of the backport job does not retry the rebuild, because this branch already exists.
+
+          To rebuild them by hand, run \`et check-packages --since origin/sdk-$SDK --no-uniformity-check\` in a checkout of this branch. Then commit and push the changed \`build/\` files."
+        env:
+          GH_TOKEN: ${{ secrets.EXPO_BOT_GITHUB_TOKEN }}
+          NUMBER: ${{ matrix.number }}
+          SDK: ${{ matrix.sdk }}

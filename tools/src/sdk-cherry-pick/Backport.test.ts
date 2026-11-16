@@ -98,6 +98,7 @@ after(() => {
 });
 
 type Run = {
+  result?: Awaited<ReturnType<typeof backportAsync>>;
   error?: unknown;
   comments: string[];
   pullRequests: PullRequestDraft[];
@@ -125,7 +126,7 @@ async function backport(
     },
   };
   try {
-    await backportAsync({
+    run.result = await backportAsync({
       repoDir: clone,
       prNumber,
       sdkVersion,
@@ -175,6 +176,13 @@ describe('backportAsync', () => {
       CHANGELOG_WITH_ENTRY.trim()
     );
     assert.match(run.pullRequests[0].body, /moved the changesets of #45 into `CHANGELOG\.md`/);
+    assert.deepEqual(run.result, {
+      sdk: 91,
+      branch: 'bot/sdk-91-cherry-pick-45',
+      sha: tip,
+      number: 200,
+      packages: ['expo-foo'],
+    });
   });
 
   it('keeps the changesets, links them to the original pull request, opens the pull request, labels it, and links it on a branch with changesets', async () => {
@@ -202,6 +210,7 @@ describe('backportAsync', () => {
     );
     assert.deepEqual(run.labels, ['#200 bot: backport']);
     assert.deepEqual(run.comments, ['#48 Backport PR sdk-90: #200']);
+    assert.equal(run.result, undefined);
   });
 
   it('comments the conflicting files and the manual steps when the cherry-pick conflicts', async () => {
@@ -302,6 +311,7 @@ describe('backportAsync', () => {
     assert.match(run.log, /packages\/expo-foo\/CHANGELOG\.md \| +\d+ \+/);
     assert.equal(remoteBranch('bot/sdk-91-cherry-pick-50'), null);
     assert.deepEqual([run.comments, run.pullRequests, run.labels], [[], [], []]);
+    assert.equal(run.result, undefined);
   });
 
   it('does nothing for an SDK before 55, even when its branch exists, or for a missing branch', async () => {

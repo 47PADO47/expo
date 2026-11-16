@@ -23,6 +23,15 @@ export type BackportOptions = {
   log?: (message: string) => void;
 };
 
+/** A backport whose branch tracks `build/` folders, which the workflow rebuilds and pushes. */
+export type BackportRebuild = {
+  sdk: number;
+  branch: string;
+  sha: string;
+  number: number;
+  packages: string[];
+};
+
 const MIN_SDK_VERSION = 55;
 const BACKPORT_LABEL = 'bot: backport';
 
@@ -76,6 +85,39 @@ async function linkChangesetsAsync(
   return changed;
 }
 
+/**
+ * Names of the workspace packages, `packages/*` and `packages/@scope/*`, that HEAD changes.
+ * A moved file counts for both packages.
+ */
+async function readChangedPackagesAsync(worktree: string, targetBranch: string): Promise<string[]> {
+  const changedPaths = await gitIn(worktree)(
+    'diff',
+    '--name-only',
+    '-z',
+    '--no-renames',
+    `origin/${targetBranch}`,
+    'HEAD',
+    '--',
+    'packages/'
+  );
+  const dirs = new Set(
+    changedPaths.split('\0').flatMap((file) => /^packages\/(@[^/]+\/)?[^/]+/.exec(file)?.[0] ?? [])
+  );
+  const names = new Set<string>();
+  for (const dir of dirs) {
+    const packageJson = path.join(worktree, dir, 'package.json');
+    if (fs.existsSync(packageJson)) {
+      const { name }: { name?: unknown } = JSON.parse(
+        await fs.promises.readFile(packageJson, 'utf8')
+      );
+      if (typeof name === 'string') {
+        names.add(name);
+      }
+    }
+  }
+  return [...names].sort();
+}
+
 function gitIn(dir: string) {
   const repo = new GitDirectory(dir);
   return async (...args: string[]) => (await repo.runAsync([...GIT_CONFIG, ...args])).stdout.trim();
@@ -84,8 +126,12 @@ function gitIn(dir: string) {
 /**
  * Cherry-picks the merge commit of a pull request on main onto `sdk-NN` and opens a pull request
  * into that branch. When the bot cannot open it, it comments on the original pull request once.
+ * Branches without changesets track their `build/` folders, so for those it returns what the
+ * workflow needs to rebuild them.
  */
-export async function backportAsync(options: BackportOptions): Promise<void> {
+export async function backportAsync(
+  options: BackportOptions
+): Promise<BackportRebuild | undefined> {
   const { prNumber, sdkVersion, mergeSha, dryRun, github, log = console.log } = options;
   const targetBranch = `sdk-${sdkVersion}`;
   const botBranch = `bot/sdk-${sdkVersion}-cherry-pick-${prNumber}`;
@@ -173,7 +219,8 @@ If \`${targetBranch}\` has no \`.changeset/config.json\`, move the summary of ea
       .split('\0')
       .filter(isChangesetPath);
     let changesetNote = '';
-    if (fs.existsSync(path.join(worktree, '.changeset/config.json'))) {
+    const usesChangesets = fs.existsSync(path.join(worktree, '.changeset/config.json'));
+    if (usesChangesets) {
       if (await linkChangesetsAsync(worktree, addedChangesets, prNumber)) {
         await git('add', '-A');
         await git(
@@ -221,6 +268,8 @@ If \`${targetBranch}\` has no \`.changeset/config.json\`, move the summary of ea
       return;
     }
 
+    const packages = usesChangesets ? [] : await readChangedPackagesAsync(worktree, targetBranch);
+    const sha = await git('rev-parse', 'HEAD');
     await git('push', '--quiet', 'origin', `HEAD:refs/heads/${botBranch}`);
     const number = await github
       .createPullRequestAsync({ base: targetBranch, head: botBranch, title, body })
@@ -234,7 +283,12 @@ If \`${targetBranch}\` has no \`.changeset/config.json\`, move the summary of ea
     await github
       .addLabelAsync(number, BACKPORT_LABEL)
       .catch((error) => log(`Could not add the "${BACKPORT_LABEL}" label to #${number}: ${error}`));
-    await commentAsync(`Backport PR ${targetBranch}: #${number}`);
+    await commentAsync(`Backport PR ${targetBranch}: #${number}`).catch((error) =>
+      log(`Could not comment on #${prNumber}: ${error}`)
+    );
+    return packages.length > 0
+      ? { sdk: sdkVersion, branch: botBranch, sha, number, packages }
+      : undefined;
   } catch (error) {
     if (!commented) {
       const runLog = options.runLogUrl ? ` [Run log](${options.runLogUrl})` : '';
