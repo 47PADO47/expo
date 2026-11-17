@@ -1,4 +1,5 @@
 diff --git a/RNReanimated.podspec b/RNReanimated.podspec
+index 38a036f08f5e0352decf1061326729bf37039056..355db30a725c1cda162bcc76ce43720af3f86b99 100644
 --- a/RNReanimated.podspec
 +++ b/RNReanimated.podspec
 @@ -67,6 +67,7 @@ Pod::Spec.new do |s|
@@ -16,3 +17,59 @@ diff --git a/RNReanimated.podspec b/RNReanimated.podspec
 +  s.dependency 'React-jsitooling'
    s.dependency 'React-hermes'
  end
+diff --git a/lib/module/ReanimatedModule/js-reanimated/webUtils.js b/lib/module/ReanimatedModule/js-reanimated/webUtils.js
+index 5d233ab24050692e7cb9aaf9084c8e9fb742e5bc..3d717f2da1bf42d4fc03de206211487e2819d447 100644
+--- a/lib/module/ReanimatedModule/js-reanimated/webUtils.js
++++ b/lib/module/ReanimatedModule/js-reanimated/webUtils.js
+@@ -1,14 +1,14 @@
+ 'use strict';
+ 
+ // react-native-web exposes these style helpers only through internal modules.
+-// The dist/cjs build (with .js extensions) resolves under Metro, strict-ESM
++// The ESM build (with .js extensions) resolves under Metro, strict-ESM
+ // bundlers and Node's ESM resolver (SSR); a runtime require() would not (#9844).
+ // eslint-disable-next-line n/no-unpublished-import
+-import * as createReactDOMStyleModule from 'react-native-web/dist/cjs/exports/StyleSheet/compiler/createReactDOMStyle.js';
++import * as createReactDOMStyleModule from 'react-native-web/dist/exports/StyleSheet/compiler/createReactDOMStyle.js';
+ // eslint-disable-next-line n/no-unpublished-import
+-import * as preprocessModule from 'react-native-web/dist/cjs/exports/StyleSheet/preprocess.js';
++import * as preprocessModule from 'react-native-web/dist/exports/StyleSheet/preprocess.js';
+ 
+-// createReactDOMStyle is `module.exports = fn` (unwrap `.default`); the preprocess
++// createReactDOMStyle is a default export (unwrap `.default`); the preprocess
+ // helpers are named exports read directly (not on `.default`, a separate fn).
+ // eslint-disable-next-line @typescript-eslint/no-explicit-any
+ const interopDefault = moduleExports => moduleExports?.default ?? moduleExports;
+diff --git a/src/ReanimatedModule/js-reanimated/react-native-web.d.ts b/src/ReanimatedModule/js-reanimated/react-native-web.d.ts
+index ca5689e14c7cc19696dc88af93e35d1d7ae2ca3a..ed06fb460308d6b82a55c49977fb5cf3240d9951 100644
+--- a/src/ReanimatedModule/js-reanimated/react-native-web.d.ts
++++ b/src/ReanimatedModule/js-reanimated/react-native-web.d.ts
+@@ -1,3 +1,3 @@
+ 'use strict';
+-declare module 'react-native-web/dist/cjs/exports/StyleSheet/compiler/createReactDOMStyle.js';
+-declare module 'react-native-web/dist/cjs/exports/StyleSheet/preprocess.js';
++declare module 'react-native-web/dist/exports/StyleSheet/compiler/createReactDOMStyle.js';
++declare module 'react-native-web/dist/exports/StyleSheet/preprocess.js';
+diff --git a/src/ReanimatedModule/js-reanimated/webUtils.ts b/src/ReanimatedModule/js-reanimated/webUtils.ts
+index c0ae95919634e8d083bebf79abfa43c44126b91b..6457b8691ad4fadd0d252f47466612feaa192e5a 100644
+--- a/src/ReanimatedModule/js-reanimated/webUtils.ts
++++ b/src/ReanimatedModule/js-reanimated/webUtils.ts
+@@ -1,14 +1,14 @@
+ 'use strict';
+ 
+ // react-native-web exposes these style helpers only through internal modules.
+-// The dist/cjs build (with .js extensions) resolves under Metro, strict-ESM
++// The ESM build (with .js extensions) resolves under Metro, strict-ESM
+ // bundlers and Node's ESM resolver (SSR); a runtime require() would not (#9844).
+ // eslint-disable-next-line n/no-unpublished-import
+-import * as createReactDOMStyleModule from 'react-native-web/dist/cjs/exports/StyleSheet/compiler/createReactDOMStyle.js';
++import * as createReactDOMStyleModule from 'react-native-web/dist/exports/StyleSheet/compiler/createReactDOMStyle.js';
+ // eslint-disable-next-line n/no-unpublished-import
+-import * as preprocessModule from 'react-native-web/dist/cjs/exports/StyleSheet/preprocess.js';
++import * as preprocessModule from 'react-native-web/dist/exports/StyleSheet/preprocess.js';
+ 
+-// createReactDOMStyle is `module.exports = fn` (unwrap `.default`); the preprocess
++// createReactDOMStyle is a default export (unwrap `.default`); the preprocess
+ // helpers are named exports read directly (not on `.default`, a separate fn).
+ // eslint-disable-next-line @typescript-eslint/no-explicit-any
+ const interopDefault = (moduleExports: any) =>
