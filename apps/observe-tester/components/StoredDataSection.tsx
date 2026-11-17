@@ -49,7 +49,7 @@ export function StoredDataSection() {
         title="Grant consent"
         onPress={async () => {
           await Observe.setConsent('granted');
-          setData(StorageInspector?.inspect() ?? null);
+          setData(readStoredData());
         }}
         theme="secondary"
       />
@@ -57,7 +57,7 @@ export function StoredDataSection() {
         title="Revoke consent"
         onPress={async () => {
           await Observe.setConsent('not-granted');
-          setData(StorageInspector?.inspect() ?? null);
+          setData(readStoredData());
         }}
         theme="secondary"
       />
@@ -66,7 +66,7 @@ export function StoredDataSection() {
         onPress={async () => {
           Observe.logEvent('consent-test');
           await Observe.dispatchEvents();
-          setData(StorageInspector?.inspect() ?? null);
+          setData(readStoredData());
         }}
         theme="secondary"
       />
