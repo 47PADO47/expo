@@ -33,6 +33,7 @@ internal final class ObserveUserDefaults: UserDefaults {
     case lastDispatchDate
     case config
     case bundleDefaults
+    case storageResetToken
   }
 
   private init() {
@@ -97,6 +98,19 @@ internal final class ObserveUserDefaults: UserDefaults {
   static func setBundleDefaults(_ newValue: PersistedBundleDefaults) {
     guard let data = try? JSONEncoder().encode(newValue) else { return }
     defaults.set(data, forKey: Keys.bundleDefaults.rawValue)
+  }
+
+  /// Resets the dispatch cursors and the last dispatch date when app metrics deleted its database
+  /// since the last dispatch. The new database restarts its ids at 1, so the old cursors would
+  /// skip new rows.
+  static func resetCursorsIfStorageWasReset(storageResetToken: String?) {
+    guard defaults.string(forKey: Keys.storageResetToken.rawValue) != storageResetToken else {
+      return
+    }
+    lastDispatchedMetricId = -1
+    lastDispatchedLogId = -1
+    lastDispatchDate = nil
+    defaults.set(storageResetToken, forKey: Keys.storageResetToken.rawValue)
   }
 
   // MARK: - Legacy keys

@@ -10,6 +10,7 @@ private const val KEY_CONFIG = "config"
 private const val KEY_BUNDLE_DEFAULTS = "bundleDefaults"
 private const val KEY_LAST_DISPATCHED_METRIC_ID = "lastDispatchedMetricId"
 private const val KEY_LAST_DISPATCHED_LOG_ID = "lastDispatchedLogId"
+private const val KEY_STORAGE_RESET_TOKEN_PREFIX = "storageResetToken."
 
 /**
  * Snapshot of the last `configure(...)` payload
@@ -77,6 +78,17 @@ object ObservePreferences {
   fun setLastDispatchedLogId(context: Context, id: Long) {
     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit(commit = true) {
       putLong(KEY_LAST_DISPATCHED_LOG_ID, id)
+    }
+  }
+
+  /** The app metrics storage reset token that `signal`'s dispatch cursor belongs to. */
+  fun getStorageResetToken(context: Context, signal: String): String? =
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      .getString(KEY_STORAGE_RESET_TOKEN_PREFIX + signal, null)
+
+  fun setStorageResetToken(context: Context, signal: String, token: String?) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit(commit = true) {
+      putString(KEY_STORAGE_RESET_TOKEN_PREFIX + signal, token)
     }
   }
 }

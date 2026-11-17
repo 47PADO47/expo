@@ -1,6 +1,8 @@
 package expo.modules.observe
 
 import android.content.Context
+import expo.modules.appmetrics.AppMetricsPreferences
+import expo.modules.appmetrics.ObserveConsent
 import expo.modules.appmetrics.storage.LogRecord
 import expo.modules.appmetrics.storage.Metric
 import expo.modules.appmetrics.storage.Session
@@ -51,6 +53,10 @@ class BaseObservabilityManagerTest {
     every { ObservePreferences.setLastDispatchedLogId(any(), any()) } answers {
       logCursor = secondArg()
     }
+    every { ObservePreferences.getStorageResetToken(any(), any()) } returns null
+    every { ObservePreferences.setStorageResetToken(any(), any(), any()) } returns Unit
+    mockkObject(AppMetricsPreferences)
+    every { AppMetricsPreferences.getStorageResetToken(any()) } returns null
     coEvery { sessionManager.getMaxMetricId() } returns null
     coEvery { sessionManager.getMaxLogId() } returns null
   }
@@ -761,6 +767,52 @@ class BaseObservabilityManagerTest {
 
   // endregion
 
+  // region Consent tests
+
+  @Test
+  fun `nothing is read or sent while consent is not granted`() = runTest {
+    mockkObject(ObserveConsent)
+    every { ObserveConsent.isGranted } returns false
+    every { ObservePreferences.getConfig(any()) } returns PersistedConfig(sampleRate = 0.5)
+    var sampleReads = 0
+    val manager = createManager(deterministicUniformValueProvider = { sampleReads += 1; 0.0 })
+
+    manager.dispatchUnsentMetrics()
+    manager.dispatchUnsentLogs()
+    manager.dispatchUnsentSpans()
+
+    assertEquals(0, sampleReads)
+    coVerify(exactly = 0) { sessionManager.getMaxMetricId() }
+    coVerify(exactly = 0) { sessionManager.getMaxLogId() }
+    coVerify(exactly = 0) { sessionManager.getMaxSpanId() }
+    coVerify(exactly = 0) { sessionManager.getSpans(any(), any()) }
+    verify(exactly = 0) { ObservePreferences.getConfig(any()) }
+  }
+
+  @Test
+  fun `a new storage reset token resets the metric and log cursors and is saved`() = runTest {
+    every { AppMetricsPreferences.getStorageResetToken(any()) } returns "new"
+    every { ObservePreferences.getStorageResetToken(any(), any()) } returns "old"
+    metricCursor = 5
+    logCursor = 7
+    // Max ids past the cursors, so the stale cursor repair keeps them.
+    stubMetricDispatch(metrics = listOf(metric(10, "metric")))
+    stubLogDispatch(logs = listOf(log(10, "log")))
+    val manager = createManager()
+
+    manager.dispatchUnsentMetrics()
+    manager.dispatchUnsentLogs()
+
+    coVerify(exactly = 1) { sessionManager.getMetrics(-1, any()) }
+    coVerify(exactly = 1) { sessionManager.getLogs(-1, any()) }
+    verify(exactly = 1) { ObservePreferences.setStorageResetToken(any(), "metric", "new") }
+    verify(exactly = 1) { ObservePreferences.setStorageResetToken(any(), "log", "new") }
+    assertEquals(10, metricCursor)
+    assertEquals(10, logCursor)
+  }
+
+  // endregion
+
   // region Cleanup tests
 
   @Test
@@ -1260,7 +1312,8 @@ class BaseObservabilityManagerTest {
     chunkSize: Int = DISPATCH_CHUNK_SIZE,
     currentTimeMs: () -> Long = { 0 },
     isDebugBuild: Boolean = false,
-    deterministicUniformValue: Double = 0.0
+    deterministicUniformValue: Double = 0.0,
+    deterministicUniformValueProvider: () -> Double = { deterministicUniformValue }
   ): BaseObservabilityManager {
     val manager = BaseObservabilityManager(
       context = context,
@@ -1268,7 +1321,7 @@ class BaseObservabilityManagerTest {
       projectId = "project",
       baseUrl = "https://example.com/",
       isDebugBuild = isDebugBuild,
-      deterministicUniformValueProvider = { deterministicUniformValue },
+      deterministicUniformValueProvider = deterministicUniformValueProvider,
       currentTimeMs = currentTimeMs,
       dispatchChunkSize = chunkSize
     )

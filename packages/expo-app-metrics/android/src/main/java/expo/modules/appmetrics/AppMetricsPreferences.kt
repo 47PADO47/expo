@@ -8,6 +8,7 @@ private const val PREFS_NAME = "dev.expo.app-metrics"
 private const val KEY_ENVIRONMENT = "environment"
 private const val KEY_LAST_PROCESSED_EXIT_MILLIS = "lastProcessedExitMillis"
 private const val KEY_NETWORK_TRACES_CONFIGURATION = "networkTracesConfiguration"
+private const val KEY_STORAGE_RESET_TOKEN = "storageResetToken"
 
 object AppMetricsPreferences {
   /**
@@ -68,5 +69,17 @@ object AppMetricsPreferences {
     // `apply()` rather than `commit()`: this runs inline on the JS thread, and iOS persists
     // through `UserDefaults` without a synchronous flush either.
     prefs.edit { putString(KEY_NETWORK_TRACES_CONFIGURATION, configuration.toJson()) }
+  }
+
+  /**
+   * Changes each time a launch without consent deletes the metrics database. Observe compares it
+   * with the token it saved to reset its dispatch cursors. `null` until the first such deletion.
+   */
+  fun getStorageResetToken(context: Context): String? =
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_STORAGE_RESET_TOKEN, null)
+
+  internal fun setStorageResetToken(context: Context, token: String) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    prefs.edit(commit = true) { putString(KEY_STORAGE_RESET_TOKEN, token) }
   }
 }

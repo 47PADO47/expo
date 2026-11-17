@@ -3,6 +3,7 @@ package expo.modules.observe
 import android.content.Context
 import android.util.Log
 import expo.modules.appmetrics.AppMetricsModule
+import expo.modules.appmetrics.ObserveConsent
 import expo.modules.easclient.EASClientID
 import expo.modules.interfaces.constants.ConstantsInterface
 import expo.modules.kotlin.exception.Exceptions
@@ -50,6 +51,9 @@ class ObserveModule : Module() {
         appMetricsModule = checkNotNull(appContext.registry.getModule<AppMetricsModule>()) {
           "AppMetricsModule is required by ObserveModule. Make sure expo-app-metrics is installed."
         }
+        if (!ObserveConsent.isGranted) {
+          context.deleteDatabase(LEGACY_DATABASE_NAME)
+        }
         val sessionManager = appMetricsModule.sessionManager
         observabilityManager = ObservabilityManager(
           context,
@@ -63,7 +67,8 @@ class ObserveModule : Module() {
       }
 
       Constant("clientId") {
-        EASClientID(context).uuid.toString().lowercase()
+        // Reading the ID creates it, so it stays unread without consent.
+        if (ObserveConsent.isGranted) EASClientID(context).uuid.toString().lowercase() else null
       }
 
       AsyncFunction("dispatchEvents") Coroutine { ->
@@ -100,6 +105,9 @@ class ObserveModule : Module() {
       }
 
       Function("setBundleDefaults") { defaults: BundleDefaults ->
+        if (!ObserveConsent.isGranted) {
+          return@Function
+        }
         // Empty environment means JS bypassed both `process.env.NODE_ENV` and the
         // `?? 'production'` fallback. Refuse rather than persist an empty string,
         // which would silently corrupt downstream metrics.

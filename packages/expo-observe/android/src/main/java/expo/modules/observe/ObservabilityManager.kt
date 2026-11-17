@@ -2,6 +2,7 @@ package expo.modules.observe
 
 import android.content.Context
 import android.util.Log
+import expo.modules.appmetrics.ObserveConsent
 import expo.modules.easclient.EASClientID
 import expo.modules.appmetrics.logevents.FEEDBACK_LOG_NAME
 import expo.modules.appmetrics.storage.SessionManager
@@ -56,6 +57,9 @@ class ObservabilityManager(
   }
 
   fun scheduleBackgroundDispatch() {
+    if (!ObserveConsent.isGranted) {
+      return
+    }
     ObservabilityBackgroundWorker.scheduleBackgroundDispatch(
       context = context,
       projectId = baseManager.projectId,
@@ -131,10 +135,14 @@ class BaseObservabilityManager(
   )
 
   suspend fun dispatchUnsentMetrics(): Unit = metricsDispatchMutex.withLock {
+    if (!ObserveConsent.isGranted) {
+      return
+    }
     if (retryGateBlocks(metricsRetryGate, "metrics")) {
       return
     }
 
+    resetCursorIfStorageWasReset(context, "metric") { ObservePreferences.setLastDispatchedMetricId(context, it) }
     repairMetricCursorIfStale(context, sessionManager)
     val config = ObservePreferences.getConfig(context)
     val ignoredMetrics = config?.ignoredMetrics?.toSet() ?: emptySet()
@@ -214,10 +222,14 @@ class BaseObservabilityManager(
    * a logs failure doesn't affect the metrics cursor and vice versa.
    */
   suspend fun dispatchUnsentLogs(): Unit = logsDispatchMutex.withLock {
+    if (!ObserveConsent.isGranted) {
+      return
+    }
     if (retryGateBlocks(logsRetryGate, "logs")) {
       return
     }
 
+    resetCursorIfStorageWasReset(context, "log") { ObservePreferences.setLastDispatchedLogId(context, it) }
     repairLogCursorIfStale(context, sessionManager)
     val config = ObservePreferences.getConfig(context)
     val ignoredEvents = config?.ignoredEvents?.toSet() ?: emptySet()
@@ -317,6 +329,9 @@ class BaseObservabilityManager(
    * server's per-request span limit.
    */
   suspend fun dispatchUnsentSpans(): Unit = spansDispatchMutex.withLock {
+    if (!ObserveConsent.isGranted) {
+      return
+    }
     if (retryGateBlocks(spansRetryGate, "spans")) {
       return
     }
@@ -413,8 +428,7 @@ class BaseObservabilityManager(
   suspend fun cleanup() {
     // TODO(@ubax): Move sessionManager.cleanupOldSessions out of eas observe
     sessionManager.cleanupOldSessions()
-    // Remove the database used by the old pending telemetry queues.
-    context.deleteDatabase("eas_observe")
+    context.deleteDatabase(LEGACY_DATABASE_NAME)
     sessionManager.cleanupOldLogs()
   }
 

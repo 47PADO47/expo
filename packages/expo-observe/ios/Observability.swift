@@ -37,7 +37,11 @@ internal struct ObservabilityManager {
   private nonisolated static let errorLogNames: Set<String> = [jsExceptionLogName, nativeExceptionLogName]
 
   internal static func dispatch() async {
+    guard ObserveConsent.isGranted else {
+      return
+    }
     await serializer.run {
+      ObserveUserDefaults.resetCursorsIfStorageWasReset(storageResetToken: AppMetricsUserDefaults.storageResetToken)
       // Per-signal gates are checked inside `dispatchMetrics` / `dispatchLogs` /
       // `dispatchTraces` rather than here, so a backoff on one endpoint doesn't suppress the
       // others' traffic.

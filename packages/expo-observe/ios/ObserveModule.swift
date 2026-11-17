@@ -39,8 +39,9 @@ public final class ObserveModule: Module {
       }
     }
 
-    Constant("clientId") {
-      EASClientID.uuid().uuidString.lowercased()
+    Constant("clientId") { () -> String? in
+      // Reading the ID creates it, so it stays unread without consent.
+      return ObserveConsent.isGranted ? EASClientID.uuid().uuidString.lowercased() : nil
     }
 
     AsyncFunction("dispatchEvents") {
@@ -81,6 +82,9 @@ public final class ObserveModule: Module {
     }
 
     Function("setBundleDefaults") { (defaults: BundleDefaults) in
+      guard ObserveConsent.isGranted else {
+        return
+      }
       guard !defaults.environment.isEmpty else {
         observeLogger.warn(
           "[EAS Observe] setBundleDefaults received empty environment; skipping. "

@@ -9,6 +9,7 @@ public final class AppMetricsUserDefaults: UserDefaults {
     case lastAppLaunchState
     case environment
     case networkTracesConfiguration
+    case storageResetToken
   }
 
   private init() {
@@ -51,6 +52,17 @@ public final class AppMetricsUserDefaults: UserDefaults {
     }
     set {
       defaults.set(codable: newValue, forKey: Keys.networkTracesConfiguration.rawValue)
+    }
+  }
+
+  /// Changes each time a launch without consent deletes the metrics database. Observe compares it
+  /// with the token it saved to reset its dispatch cursors. `nil` until the first such deletion.
+  public internal(set) static var storageResetToken: String? {
+    get {
+      return defaults.string(forKey: Keys.storageResetToken.rawValue)
+    }
+    set {
+      defaults.set(newValue, forKey: Keys.storageResetToken.rawValue)
     }
   }
 }

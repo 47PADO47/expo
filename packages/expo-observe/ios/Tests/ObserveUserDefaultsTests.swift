@@ -157,6 +157,26 @@ struct ObserveUserDefaultsTests {
     #expect(ObserveUserDefaults.bundleDefaults?.isJsDev == true)
   }
 
+  // MARK: - Storage reset token
+
+  @Test
+  func `a new storage reset token resets the cursors and the last dispatch date once`() {
+    ObserveUserDefaults.lastDispatchedMetricId = 5
+    ObserveUserDefaults.lastDispatchedLogId = 7
+    ObserveUserDefaults.lastDispatchDate = Date()
+
+    ObserveUserDefaults.resetCursorsIfStorageWasReset(storageResetToken: "new")
+
+    #expect(ObserveUserDefaults.lastDispatchedMetricId == -1)
+    #expect(ObserveUserDefaults.lastDispatchedLogId == -1)
+    #expect(ObserveUserDefaults.lastDispatchDate == nil)
+
+    // The token is saved, so the next dispatch pass keeps the cursors.
+    ObserveUserDefaults.lastDispatchedMetricId = 9
+    ObserveUserDefaults.resetCursorsIfStorageWasReset(storageResetToken: "new")
+    #expect(ObserveUserDefaults.lastDispatchedMetricId == 9)
+  }
+
   @Test
   func `cleanUpLegacyKeys removes only the legacy keys`() throws {
     let suiteName = "dev.expo.observe.tests.legacy-keys"

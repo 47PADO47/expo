@@ -4,6 +4,7 @@ package expo.modules.observe
 
 import android.content.Context
 import android.util.Log
+import expo.modules.appmetrics.AppMetricsPreferences
 import expo.modules.appmetrics.storage.SessionManager
 import kotlinx.coroutines.CancellationException
 
@@ -57,4 +58,21 @@ internal suspend fun repairLogCursorIfStale(
     writeCursor = { ObservePreferences.setLastDispatchedLogId(context, it) },
     readMaxId = sessionManager::getMaxLogId
   )
+}
+
+/**
+ * Resets a dispatch cursor when app metrics deleted its database since this signal's last
+ * dispatch. The new database restarts its ids at 1, so the old cursor would skip new rows.
+ */
+internal fun resetCursorIfStorageWasReset(
+  context: Context,
+  signalName: String,
+  writeCursor: (Long) -> Unit
+) {
+  val token = AppMetricsPreferences.getStorageResetToken(context)
+  if (ObservePreferences.getStorageResetToken(context, signalName) == token) {
+    return
+  }
+  writeCursor(-1)
+  ObservePreferences.setStorageResetToken(context, signalName, token)
 }
