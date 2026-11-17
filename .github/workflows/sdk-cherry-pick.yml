@@ -252,10 +252,13 @@ jobs:
           if [ "$(git rev-parse HEAD)" = "$SHA" ]; then
             exit 0
           fi
-          # shellcheck disable=SC2016 # The credential helper expands $GH_TOKEN, so it is not in argv.
-          git -c core.hooksPath=/dev/null -c credential.helper= \
-            -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f' \
-            push origin "HEAD:refs/heads/$BRANCH"
+          basic=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$basic"
+          # The environment keeps the header out of .git/config and out of argv.
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic"
+          git -c core.hooksPath=/dev/null -c credential.helper= push origin "HEAD:refs/heads/$BRANCH"
         env:
           GH_TOKEN: ${{ secrets.EXPO_BOT_GITHUB_TOKEN }}
           BRANCH: ${{ matrix.branch }}
