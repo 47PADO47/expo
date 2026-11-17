@@ -3,11 +3,13 @@
 #import <ExpoModulesCore/ExpoNativeViewObjC.h>
 #import <ExpoModulesCore/NewComponentDescriptor.h>
 #import <ExpoModulesCore/ObjCPropsDecoder.h>
+#import <ExpoModulesCore/ViewEventDispatch.h>
 
 #import <React/RCTAssert.h>
 #import <React/RCTComponentViewFactory.h>
 #import <React/RCTLog.h>
 
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -56,7 +58,10 @@ std::unordered_map<std::string, std::shared_ptr<const views::NewComponentFlavor>
 
 } // namespace
 
-@implementation ExpoNativeViewObjC
+@implementation ExpoNativeViewObjC {
+  // Guards `_eventEmitter`: Fabric sets it on the main thread, and events can be dispatched from any thread.
+  std::mutex _eventEmitterMutex;
+}
 
 - (instancetype)initWithFrame:(CGRect)frame
 {
@@ -90,6 +95,12 @@ std::unordered_map<std::string, std::shared_ptr<const views::NewComponentFlavor>
   return NO;
 }
 
+- (void)updateEventEmitter:(const react::EventEmitter::Shared &)eventEmitter
+{
+  std::lock_guard<std::mutex> lock(_eventEmitterMutex);
+  [super updateEventEmitter:eventEmitter];
+}
+
 - (void)finalizeUpdates:(RNComponentViewUpdateMask)updateMask
 {
   [super finalizeUpdates:updateMask];
@@ -105,6 +116,18 @@ std::unordered_map<std::string, std::shared_ptr<const views::NewComponentFlavor>
 - (void)updateDecodedProps:(nullable const void *)decodedProps
 {
   // Implemented in `ExpoNativeView.swift`
+}
+
+#pragma mark - EXViewEventEmitting
+
+- (void)dispatchEvent:(NSString *)name encodePayload:(nullable EXViewEventPayloadEncoder)encodePayload
+{
+  react::SharedViewEventEmitter eventEmitter;
+  {
+    std::lock_guard<std::mutex> lock(_eventEmitterMutex);
+    eventEmitter = _eventEmitter;
+  }
+  views::dispatchViewEvent(eventEmitter, name, encodePayload);
 }
 
 #pragma mark - Component registration
