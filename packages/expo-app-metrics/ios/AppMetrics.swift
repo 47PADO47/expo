@@ -77,21 +77,27 @@ public struct AppMetrics {
   // Make the initializer private to prevent non-singleton usage.
   private init() {}
 
-  /// Deletes the metrics database, the pending-error files, and the legacy JSON file. When a
-  /// database existed, it saves a new storage reset token, so Observe knows that its dispatch
-  /// cursors point past the ids of the next database.
+  /// Deletes the stored data while consent is not granted. Runs at launch and at a revoke.
   static func deleteStoredData() {
     guard let databaseDirectory = try? MetricsDatabase.defaultDirectoryUrl(),
       let pendingErrorsDirectory = try? PendingErrorStore.directoryUrl()
     else {
       return
     }
-    deleteStoredData(databaseDirectory: databaseDirectory, pendingErrorsDirectory: pendingErrorsDirectory)
-    MetricsDatabase.cleanUpLegacyStorage()
+    deleteStoredData(
+      consent: ObserveConsent.state,
+      databaseDirectory: databaseDirectory,
+      pendingErrorsDirectory: pendingErrorsDirectory
+    )
   }
 
-  /// Deletes from explicit directories. Tests use this overload to point at a temporary directory.
-  static func deleteStoredData(databaseDirectory: URL, pendingErrorsDirectory: URL) {
+  /// Deletes the metrics database, the pending-error files, and the legacy JSON file, only when
+  /// `consent` is `.notGranted`. When a database existed, it saves a new storage reset token, so
+  /// Observe knows that its dispatch cursors point past the ids of the next database.
+  static func deleteStoredData(consent: ObserveConsent.State, databaseDirectory: URL, pendingErrorsDirectory: URL) {
+    guard consent == .notGranted else {
+      return
+    }
     let databaseUrl = databaseDirectory.appendingPathComponent("metrics.db")
     if FileManager.default.fileExists(atPath: databaseUrl.path) {
       AppMetricsUserDefaults.storageResetToken = UUID().uuidString
@@ -102,6 +108,40 @@ public struct AppMetrics {
       logger.warn("[AppMetrics] Failed to delete the metrics database: \(error.localizedDescription)")
     }
     try? FileManager.default.removeItem(at: pendingErrorsDirectory)
+    MetricsDatabase.cleanUpLegacyStorage()
+  }
+
+  /// Applies a consent change from `Observe.setConsent`. It runs on the actor without suspending,
+  /// so the changes run one at a time.
+  @AppMetricsActor
+  public static func setConsent(granted: Bool) throws {
+    let update = ObserveConsent.update(granted: granted)
+    if update.changed {
+      apply(granted: granted)
+    }
+    if !update.isSaved {
+      throw ConsentNotSavedException(granted)
+    }
+  }
+
+  @AppMetricsActor
+  private static func apply(granted: Bool) {
+    if granted {
+      // The launch inserts did nothing without consent, so the session rows are inserted now.
+      mainSession.insertRow()
+      foregroundSession?.insertRow()
+      mainSession.saveUnsavedStartupMetrics()
+      #if !os(tvOS) && !targetEnvironment(simulator)
+      // Past payloads are from before the grant, so they are not processed.
+      MXMetricManager.shared.add(metricKitSubscriber)
+      #endif
+    } else {
+      #if !os(tvOS) && !targetEnvironment(simulator)
+      MXMetricManager.shared.remove(metricKitSubscriber)
+      #endif
+      // The open database is not used again in this process, so its files can be deleted.
+      deleteStoredData()
+    }
   }
 
   // MARK: - Read API for downstream consumers (e.g. expo-observe)
@@ -229,5 +269,17 @@ public struct AppMetrics {
       foregroundSession?.stop()
       foregroundSession = nil
     }
+  }
+}
+
+internal final class ConsentNotSavedException: GenericException<Bool>, @unchecked Sendable {
+  override var reason: String {
+    if param {
+      return "Observe could not save the consent value 'granted' on the device, so collection did not start. "
+        + "The device storage may be full or unavailable. Free storage and call setConsent('granted') again."
+    }
+    return "Observe could not save the consent value 'not-granted' on the device. Collection stopped and the "
+      + "stored data was deleted, but the next launch may read the earlier value. The device storage may be "
+      + "full or unavailable. Free storage and call setConsent('not-granted') again."
   }
 }

@@ -9,6 +9,7 @@ private const val KEY_ENVIRONMENT = "environment"
 private const val KEY_LAST_PROCESSED_EXIT_MILLIS = "lastProcessedExitMillis"
 private const val KEY_NETWORK_TRACES_CONFIGURATION = "networkTracesConfiguration"
 private const val KEY_STORAGE_RESET_TOKEN = "storageResetToken"
+private const val KEY_OBSERVE_CONSENT = "observeConsent"
 
 object AppMetricsPreferences {
   /**
@@ -82,4 +83,12 @@ object AppMetricsPreferences {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     prefs.edit(commit = true) { putString(KEY_STORAGE_RESET_TOKEN, token) }
   }
+
+  /** The consent value saved by `Observe.setConsent`. `null` until the first call. */
+  internal fun getObserveConsent(context: Context): String? =
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_OBSERVE_CONSENT, null)
+
+  /** Returns whether the value was written to disk. */
+  internal fun setObserveConsent(context: Context, consent: String): Boolean =
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_OBSERVE_CONSENT, consent).commit()
 }

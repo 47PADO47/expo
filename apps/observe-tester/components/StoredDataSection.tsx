@@ -45,6 +45,31 @@ export function StoredDataSection() {
         onPress={() => setData(readStoredData())}
         theme="secondary"
       />
+      <Button
+        title="Grant consent"
+        onPress={async () => {
+          await Observe.setConsent('granted');
+          setData(StorageInspector?.inspect() ?? null);
+        }}
+        theme="secondary"
+      />
+      <Button
+        title="Revoke consent"
+        onPress={async () => {
+          await Observe.setConsent('not-granted');
+          setData(StorageInspector?.inspect() ?? null);
+        }}
+        theme="secondary"
+      />
+      <Button
+        title="Log consent-test event and dispatch"
+        onPress={async () => {
+          Observe.logEvent('consent-test');
+          await Observe.dispatchEvents();
+          setData(StorageInspector?.inspect() ?? null);
+        }}
+        theme="secondary"
+      />
     </>
   );
 }

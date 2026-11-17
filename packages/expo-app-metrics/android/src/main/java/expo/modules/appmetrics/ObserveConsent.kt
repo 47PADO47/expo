@@ -21,13 +21,42 @@ object ObserveConsent {
   var isGranted: Boolean = true
     private set
 
-  /** Reads the consent value from the app config embedded in the app. */
+  // After a revoke, a grant in the same process only saves the value.
+  private var hasRevoked = false
+
+  /** Reads the saved consent value, or the app config embedded in the app when there is none. */
+  @Synchronized
   fun load(context: Context) {
-    isGranted = resolve(readEmbeddedAppConfig(context))
+    isGranted = resolve(AppMetricsPreferences.getObserveConsent(context), readEmbeddedAppConfig(context))
+    hasRevoked = false
   }
 
-  /** Consent from the `extra.eas.observe.consent` key of the app config JSON, granted when the key is missing. */
-  internal fun resolve(appConfig: String?): Boolean {
+  internal data class Update(val changed: Boolean, val isSaved: Boolean)
+
+  /**
+   * Saves the value and changes the gate. A grant after a revoke changes it only at the next launch.
+   * When the save fails, a revoke still closes the gate, but a grant changes nothing: the next
+   * launch would read the earlier value.
+   */
+  @Synchronized
+  internal fun update(context: Context, granted: Boolean): Update {
+    val isSaved = AppMetricsPreferences.setObserveConsent(context, if (granted) GRANTED else NOT_GRANTED)
+    if (granted == isGranted || (granted && (hasRevoked || !isSaved))) {
+      return Update(changed = false, isSaved = isSaved)
+    }
+    isGranted = granted
+    hasRevoked = hasRevoked || !granted
+    return Update(changed = true, isSaved = isSaved)
+  }
+
+  /**
+   * Consent from the saved value, else from the `extra.eas.observe.consent` key of the app config
+   * JSON, granted when both are missing.
+   */
+  internal fun resolve(savedConsent: String?, appConfig: String?): Boolean {
+    if (savedConsent != null) {
+      return savedConsent == GRANTED
+    }
     val consent = (appConfig?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() } as? JsonObject)
       ?.let { it["extra"] as? JsonObject }
       ?.let { it["eas"] as? JsonObject }
@@ -35,15 +64,18 @@ object ObserveConsent {
       ?.get("consent")
       ?: return true
     val value = (consent as? JsonPrimitive)?.takeIf { it.isString }?.content
-    if (value != "granted" && value != "not-granted") {
+    if (value != GRANTED && value != NOT_GRANTED) {
       Log.w(
         TAG,
         "[AppMetrics] The app config value `extra.eas.observe.consent` is $consent, which is not " +
           "'granted' or 'not-granted', so Observe stays inactive. Set it to 'granted' or 'not-granted'."
       )
     }
-    return value == "granted"
+    return value == GRANTED
   }
+
+  private const val GRANTED = "granted"
+  private const val NOT_GRANTED = "not-granted"
 
   private fun readEmbeddedAppConfig(context: Context): String? =
     try {

@@ -12,6 +12,7 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
+import expo.modules.kotlin.types.Enumerable
 import expo.modules.kotlin.types.OptimizedRecord
 
 @OptimizedRecord
@@ -31,6 +32,11 @@ class BundleDefaults(
   @Field val environment: String = "",
   @Field val isJsDev: Boolean = false
 ) : Record
+
+internal enum class ConsentValue(val value: String) : Enumerable {
+  GRANTED("granted"),
+  NOT_GRANTED("not-granted")
+}
 
 class ObserveModule : Module() {
   private val context: Context
@@ -66,9 +72,19 @@ class ObserveModule : Module() {
         observabilityManager.scheduleBackgroundDispatch()
       }
 
-      Constant("clientId") {
+      // A property, not a constant, so it follows `setConsent`.
+      Property("clientId") {
         // Reading the ID creates it, so it stays unread without consent.
         if (ObserveConsent.isGranted) EASClientID(context).uuid.toString().lowercase() else null
+      }
+
+      AsyncFunction("setConsent") Coroutine { consent: ConsentValue ->
+        // Before the app metrics change, which throws when the value is not saved.
+        if (consent == ConsentValue.NOT_GRANTED) {
+          ObservabilityBackgroundWorker.cancelBackgroundDispatch(context)
+          context.deleteDatabase(LEGACY_DATABASE_NAME)
+        }
+        appMetricsModule.setConsent(consent == ConsentValue.GRANTED)
       }
 
       AsyncFunction("dispatchEvents") Coroutine { ->
