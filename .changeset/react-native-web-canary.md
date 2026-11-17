@@ -13,6 +13,4 @@
 'expo-symbols': patch
 ---
 
-Upgrade `react-native-web` and `babel-plugin-react-native-web` to 0.22.0-canary-20261117-979d6d9. This version is ESM only, so imports of its internal modules now use explicit `.js` file paths.
-
-`expo/types` now loads the types that `react-native-web` includes, in place of its own copy. React Native props and styles get the web values that `react-native-web` supports, on all platforms. For example, `fontSize` and `lineHeight` accept strings, and `View` accepts `href`. The `className` props stay.
+Upgrade `react-native-web` and `babel-plugin-react-native-web` to 0.22.0-canary-20261117-979d6d9 (ESM only). `expo/types` now uses the types included in `react-native-web`, which also apply on native platforms.
