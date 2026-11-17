@@ -6,11 +6,18 @@ import { Button } from '@/components/Button';
 import StorageInspector, { type StoredData } from '@/modules/storage-inspector';
 import { useTheme } from '@/utils/theme';
 
+// Reads `clientId` outside compiler-memoized render expressions, before it inspects the storage.
+function readStoredData(): (StoredData & { clientId: string | null }) | null {
+  const clientId = Observe.clientId;
+  const data = StorageInspector?.inspect();
+  return data ? { ...data, clientId } : null;
+}
+
 // Shows the stored Observe data as text with test IDs, so the consent tests can read it on a
 // simulator.
 export function StoredDataSection() {
   const theme = useTheme();
-  const [data, setData] = useState<StoredData | null>(() => StorageInspector?.inspect() ?? null);
+  const [data, setData] = useState(readStoredData);
 
   if (StorageInspector == null || data == null) {
     return null;
@@ -22,7 +29,7 @@ export function StoredDataSection() {
     ['crashFileCount', data.crashFileCount],
     ['pendingErrorFileCount', data.pendingErrorFileCount],
     ['installationIdStored', data.installationIdStored],
-    ['clientId', Observe.clientId],
+    ['clientId', data.clientId],
   ];
 
   return (
@@ -35,7 +42,7 @@ export function StoredDataSection() {
       ))}
       <Button
         title="Refresh stored data"
-        onPress={() => setData(StorageInspector?.inspect() ?? null)}
+        onPress={() => setData(readStoredData())}
         theme="secondary"
       />
     </>
