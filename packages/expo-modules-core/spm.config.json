@@ -49,6 +49,11 @@
               "from": "Core/Views/SwiftUI/SwiftUIVirtualViewSharedImpl+Private.h",
               "to": "Core/Views/SwiftUI/{filename}",
               "type": "source"
+            },
+            {
+              "from": "Fabric/v2/ExpoSwiftUIViewObjCSharedImpl+Private.h",
+              "to": "Fabric/v2/{filename}",
+              "type": "source"
             }
           ],
           "dependencies": [
