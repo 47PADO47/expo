@@ -258,6 +258,14 @@ class PreviewViewController: UIViewController {
   }
 
   override func loadView() {
+    // React mounts the content view once and every preview reuses it, but a view can belong to
+    // only one view controller. UIKit may still hold the previous controller while it dismisses,
+    // so take the view away from it first.
+    if let previousOwner = linkPreviewNativePreview.next as? UIViewController,
+      previousOwner !== self
+    {
+      previousOwner.view = UIView()
+    }
     self.view = linkPreviewNativePreview
   }
 
