@@ -22,6 +22,15 @@ android {
     buildConfigField "boolean", "EXPO_UNSTABLE_LOG_BOX", isEnabled ? "true" : "false"
   }
 
+  buildTypes {
+    // React Native adds `debugOptimized` to the app only. Without this build type, the app's
+    // `debugOptimized` variant falls back to this library's `release` variant, which has no assets.
+    create("debugOptimized") {
+      initWith(buildTypes.debug)
+      matchingFallbacks += ["release"]
+    }
+  }
+
   sourceSets {
     main {
       kotlin.srcDirs += "src/main"
@@ -29,6 +38,9 @@ android {
     if (isEnabled) {
       debug {
         // dist contains only ExpoLogBox.bundle
+        assets.srcDirs += "${projectDir}/../dist"
+      }
+      debugOptimized {
         assets.srcDirs += "${projectDir}/../dist"
       }
     }
